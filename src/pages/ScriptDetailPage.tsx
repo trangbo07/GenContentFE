@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { getScript, deleteScript, regenerateScript, updateScript, translateScript, type Script } from '@/lib/api';
+import { getScript, deleteScript, regenerateScript, updateScript, translateScript, findImages, type Script, type SectionImages } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,7 +9,7 @@ import { formatDate, wordCountToReadTime } from '@/lib/utils';
 import { useToast } from '@/hooks/useToast';
 import {
   ArrowLeft, Copy, RefreshCw, Trash2, Loader2,
-  FileDown, Pencil, Check, X, Languages,
+  FileDown, Pencil, Check, X, Languages, Images, Download,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -45,6 +45,11 @@ export function ScriptDetailPage() {
   const [contentVi, setContentVi] = useState<string | null>(null);
   const [translating, setTranslating] = useState(false);
   const [showBilingual, setShowBilingual] = useState(false);
+
+  // Image finder state
+  const [imageResult, setImageResult] = useState<SectionImages[] | null>(null);
+  const [findingImages, setFindingImages] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   // Edit mode state
   const [editMode, setEditMode] = useState(false);
@@ -141,6 +146,63 @@ export function ScriptDetailPage() {
       toast({ title: 'Translation failed', variant: 'destructive' });
     } finally {
       setTranslating(false);
+    }
+  }
+
+  async function handleFindImages() {
+    if (!script) return;
+    setFindingImages(true);
+    setImageResult(null);
+    try {
+      const result = await findImages(script.id);
+      setImageResult(result.sections);
+      toast({ title: `Tìm được ${result.total} ảnh` });
+    } catch {
+      toast({ title: 'Không tìm được ảnh — kiểm tra PEXELS_API_KEY', variant: 'destructive' });
+    } finally {
+      setFindingImages(false);
+    }
+  }
+
+  async function handleDownloadImages() {
+    if (!imageResult) return;
+    setDownloading(true);
+    try {
+      const { default: JSZip } = await import('jszip');
+      const zip = new JSZip();
+
+      const tasks: { url: string; path: string }[] = [];
+      imageResult.forEach((section, sIdx) => {
+        const folderName = `S${sIdx + 1}_${section.title.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 30)}`;
+        section.items.forEach((item, iIdx) => {
+          if (item.imageUrl) {
+            tasks.push({ url: item.imageUrl, path: `${folderName}/${String(iIdx + 1).padStart(2, '0')}.jpg` });
+          }
+        });
+      });
+
+      // Download in batches of 5
+      for (let i = 0; i < tasks.length; i += 5) {
+        await Promise.all(
+          tasks.slice(i, i + 5).map(async ({ url, path }) => {
+            try {
+              const res = await fetch(url);
+              zip.file(path, await res.blob());
+            } catch { /* skip failed */ }
+          }),
+        );
+      }
+
+      const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${script!.title.slice(0, 40).replace(/[^a-zA-Z0-9]/g, '_')}_images.zip`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch {
+      toast({ title: 'Download thất bại', variant: 'destructive' });
+    } finally {
+      setDownloading(false);
     }
   }
 
@@ -261,6 +323,17 @@ export function ScriptDetailPage() {
                   : <Languages className="h-4 w-4" />}
                 VI
               </Button>
+              <Button
+                variant={imageResult ? 'default' : 'outline'}
+                size="sm"
+                onClick={handleFindImages}
+                disabled={findingImages}
+              >
+                {findingImages
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <Images className="h-4 w-4" />}
+                Tìm Ảnh
+              </Button>
               <Button variant="outline" size="sm" onClick={handleRegenerate} disabled={regenerating}>
                 {regenerating
                   ? <Loader2 className="h-4 w-4 animate-spin" />
@@ -347,6 +420,80 @@ export function ScriptDetailPage() {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* ── IMAGE PANEL ── */}
+      {findingImages && (
+        <Card>
+          <CardContent className="p-8 flex flex-col items-center gap-3 text-muted-foreground">
+            <Loader2 className="h-8 w-8 animate-spin" />
+            <p className="text-sm">Đang tìm ảnh cho từng câu… có thể mất 20–40 giây</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {imageResult && !findingImages && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold">
+              Ảnh cho bản tin —{' '}
+              <span className="text-primary">
+                {imageResult.reduce((n, s) => n + s.items.filter((i) => i.imageUrl).length, 0)} ảnh
+              </span>
+            </h2>
+            <Button size="sm" onClick={handleDownloadImages} disabled={downloading}>
+              {downloading
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : <Download className="h-4 w-4" />}
+              {downloading ? 'Đang tạo ZIP…' : 'Tải xuống tất cả (ZIP)'}
+            </Button>
+          </div>
+
+          {imageResult.map((section, sIdx) => (
+            <Card key={sIdx}>
+              <CardHeader className="p-4 pb-2">
+                <CardTitle className="text-sm font-semibold text-primary uppercase tracking-wide">
+                  {section.title}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-4 pt-0 space-y-3">
+                {section.items.map((item, iIdx) => (
+                  <div key={iIdx} className="flex gap-3 items-start border-b border-border/40 pb-3 last:border-0 last:pb-0">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-foreground/80 leading-relaxed line-clamp-2">{item.sentence}</p>
+                      <p className="text-xs text-muted-foreground mt-1 font-mono">{item.keywords}</p>
+                    </div>
+                    {item.imageUrl ? (
+                      <a href={item.pexelsUrl} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                        <img
+                          src={item.imageUrl}
+                          alt={item.imageAlt}
+                          className="w-36 h-24 object-cover rounded border border-border hover:opacity-80 transition-opacity"
+                        />
+                        <p className="text-[10px] text-muted-foreground mt-1 text-center truncate w-36">
+                          © {item.photographer}
+                        </p>
+                      </a>
+                    ) : (
+                      <div className="w-36 h-24 shrink-0 rounded border border-border/30 bg-muted/30 flex items-center justify-center">
+                        <span className="text-xs text-muted-foreground">Không tìm thấy</span>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          ))}
+
+          <div className="flex justify-end">
+            <Button size="sm" onClick={handleDownloadImages} disabled={downloading}>
+              {downloading
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : <Download className="h-4 w-4" />}
+              {downloading ? 'Đang tạo ZIP…' : 'Tải xuống tất cả (ZIP)'}
+            </Button>
+          </div>
+        </div>
       )}
 
       {/* Word count bar while editing */}

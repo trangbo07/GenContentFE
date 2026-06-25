@@ -115,3 +115,26 @@ export const refreshNews = () =>
 
 export const generateCustomScript = (payload: CustomGeneratePayload) =>
   api.post<Script>('/scripts/generate/custom', payload).then((r) => r.data);
+
+// Images
+export interface SentenceImage {
+  sentence: string;
+  keywords: string;
+  imageUrl: string | null;
+  imageAlt: string;
+  photographer: string;
+  pexelsUrl: string;
+}
+
+export interface SectionImages {
+  title: string;
+  items: SentenceImage[];
+}
+
+export interface ImageSearchResult {
+  sections: SectionImages[];
+  total: number;
+}
+
+export const findImages = (id: string) =>
+  api.post<ImageSearchResult>(`/scripts/${id}/find-images`).then((r) => r.data);
