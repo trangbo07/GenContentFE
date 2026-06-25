@@ -50,8 +50,8 @@ export function ScriptDetailPage() {
   const [imageResult, setImageResult] = useState<SectionImages[] | null>(null);
   const [findingImages, setFindingImages] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  // key = "sIdx-iIdx", value = selected ImageOption
   const [selected, setSelected] = useState<Record<string, ImageOption>>({});
+  const imagePanelRef = useRef<HTMLDivElement>(null);
 
   // Edit mode state
   const [editMode, setEditMode] = useState(false);
@@ -169,6 +169,7 @@ export function ScriptDetailPage() {
       setSelected(autoSelected);
       const total = Object.keys(autoSelected).length;
       toast({ title: `Tìm được ảnh cho ${total} câu` });
+      setTimeout(() => imagePanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
     } catch {
       toast({ title: 'Không tìm được ảnh — kiểm tra SERPER_API_KEY trên Render', variant: 'destructive' });
     } finally {
@@ -434,7 +435,7 @@ export function ScriptDetailPage() {
       )}
 
       {imageResult && !findingImages && (
-        <div className="space-y-4">
+        <div ref={imagePanelRef} className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold">
               Kết quả tìm ảnh —{' '}
