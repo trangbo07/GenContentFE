@@ -177,15 +177,8 @@ export function ScriptDetailPage() {
 
   function handleDownloadTxt() {
     if (!promptResult || !script) return;
-    const parts: string[] = [];
-    promptResult.forEach((sec) => {
-      parts.push(`=== ${sec.title} ===\n`);
-      sec.items.forEach((item, i) => {
-        parts.push(`[${i + 1}] ${item.sentence}`);
-        parts.push(`${item.prompt}\n`);
-      });
-    });
-    const blob = new Blob([parts.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const prompts = promptResult.flatMap((s) => s.items.map((i) => i.prompt));
+    const blob = new Blob([prompts.join('\n\n')], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
