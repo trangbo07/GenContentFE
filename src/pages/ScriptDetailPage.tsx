@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { getScript, deleteScript, regenerateScript, updateScript, translateScript, findImages, downloadImagesZip, type Script, type SectionImages, type ImageOption } from '@/lib/api';
+import { getScript, deleteScript, regenerateScript, updateScript, translateScript, genPrompts, type Script, type SectionPrompts } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,7 +9,7 @@ import { formatDate, wordCountToReadTime } from '@/lib/utils';
 import { useToast } from '@/hooks/useToast';
 import {
   ArrowLeft, Copy, RefreshCw, Trash2, Loader2,
-  FileDown, Pencil, Check, X, Languages, Images, Download,
+  FileDown, Pencil, Check, X, Languages, Wand2, Download, ClipboardCopy,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -46,12 +46,10 @@ export function ScriptDetailPage() {
   const [translating, setTranslating] = useState(false);
   const [showBilingual, setShowBilingual] = useState(false);
 
-  // Image finder state
-  const [imageResult, setImageResult] = useState<SectionImages[] | null>(null);
-  const [findingImages, setFindingImages] = useState(false);
-  const [downloading, setDownloading] = useState(false);
-  const [selected, setSelected] = useState<Record<string, ImageOption>>({});
-  const imagePanelRef = useRef<HTMLDivElement>(null);
+  // Prompt generation state
+  const [promptResult, setPromptResult] = useState<SectionPrompts[] | null>(null);
+  const [genningPrompts, setGenningPrompts] = useState(false);
+  const promptPanelRef = useRef<HTMLDivElement>(null);
 
   // Edit mode state
   const [editMode, setEditMode] = useState(false);
@@ -152,61 +150,48 @@ export function ScriptDetailPage() {
     }
   }
 
-  async function handleFindImages() {
+  async function handleGenPrompts() {
     if (!script) return;
-    setFindingImages(true);
-    setImageResult(null);
-    setSelected({});
+    setGenningPrompts(true);
+    setPromptResult(null);
     try {
-      const result = await findImages(script.id);
+      const result = await genPrompts(script.id);
       const sections = result?.sections ?? [];
-      setImageResult(sections);
-      const autoSelected: Record<string, ImageOption> = {};
-      sections.forEach((sec, sIdx) => {
-        (sec.items ?? []).forEach((item, iIdx) => {
-          if (item.images?.[0]) autoSelected[`${sIdx}-${iIdx}`] = item.images[0];
-        });
+      setPromptResult(sections);
+      const total = sections.reduce((n, s) => n + s.items.length, 0);
+      toast({ title: `Đã gen ${total} prompts!` });
+      setTimeout(() => promptPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+    } catch {
+      toast({ title: 'Gen prompts thất bại', variant: 'destructive' });
+    } finally {
+      setGenningPrompts(false);
+    }
+  }
+
+  async function handleCopyAll() {
+    if (!promptResult) return;
+    const lines = promptResult.flatMap((s) => s.items.map((i) => i.prompt));
+    await navigator.clipboard.writeText(lines.join('\n\n'));
+    toast({ title: `Đã copy ${lines.length} prompts!` });
+  }
+
+  function handleDownloadTxt() {
+    if (!promptResult || !script) return;
+    const parts: string[] = [];
+    promptResult.forEach((sec) => {
+      parts.push(`=== ${sec.title} ===\n`);
+      sec.items.forEach((item, i) => {
+        parts.push(`[${i + 1}] ${item.sentence}`);
+        parts.push(`${item.prompt}\n`);
       });
-      setSelected(autoSelected);
-      const total = Object.keys(autoSelected).length;
-      toast({ title: `Tìm được ảnh cho ${total} câu` });
-      setTimeout(() => imagePanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
-    } catch {
-      toast({ title: 'Không tìm được ảnh — kiểm tra SERPER_API_KEY trên Render', variant: 'destructive' });
-    } finally {
-      setFindingImages(false);
-    }
-  }
-
-  async function handleDownloadImages() {
-    if (!script) return;
-    setDownloading(true);
-    try {
-      const toDownload = Object.entries(selected).map(([key, img]) => ({
-        url: img.url,
-        filename: `${key.replace('-', '_S')}.jpg`,
-      }));
-      if (toDownload.length === 0) {
-        toast({ title: 'Chưa chọn ảnh nào', variant: 'destructive' });
-        return;
-      }
-      await downloadImagesZip(script.id, toDownload);
-    } catch {
-      toast({ title: 'Download thất bại', variant: 'destructive' });
-    } finally {
-      setDownloading(false);
-    }
-  }
-
-  function toggleSelectImage(key: string, img: ImageOption) {
-    setSelected((prev) => {
-      if (prev[key]?.url === img.url) {
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      }
-      return { ...prev, [key]: img };
     });
+    const blob = new Blob([parts.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `prompts_${script.id}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   async function handleDelete() {
@@ -327,15 +312,15 @@ export function ScriptDetailPage() {
                 VI
               </Button>
               <Button
-                variant={imageResult ? 'default' : 'outline'}
+                variant={promptResult ? 'default' : 'outline'}
                 size="sm"
-                onClick={handleFindImages}
-                disabled={findingImages}
+                onClick={handleGenPrompts}
+                disabled={genningPrompts}
               >
-                {findingImages
+                {genningPrompts
                   ? <Loader2 className="h-4 w-4 animate-spin" />
-                  : <Images className="h-4 w-4" />}
-                Tìm Ảnh
+                  : <Wand2 className="h-4 w-4" />}
+                Gen Prompts
               </Button>
               <Button variant="outline" size="sm" onClick={handleRegenerate} disabled={regenerating}>
                 {regenerating
@@ -425,94 +410,76 @@ export function ScriptDetailPage() {
         </Card>
       )}
 
-      {/* ── IMAGE PANEL ── */}
-      {findingImages && (
+      {/* ── PROMPT PANEL ── */}
+      {genningPrompts && (
         <Card>
           <CardContent className="p-8 flex flex-col items-center gap-3 text-muted-foreground">
             <Loader2 className="h-8 w-8 animate-spin" />
-            <p className="text-sm">Đang tìm ảnh cho từng câu… có thể mất 20–40 giây</p>
+            <p className="text-sm">Đang gen prompts bằng AI… khoảng 10–20 giây</p>
           </CardContent>
         </Card>
       )}
 
-      {imageResult && !findingImages && (
-        <div ref={imagePanelRef} className="space-y-4">
+      {promptResult && !genningPrompts && (
+        <div ref={promptPanelRef} className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold">
-              Kết quả tìm ảnh —{' '}
-              <span className="text-primary">{Object.keys(selected).length} ảnh đã chọn</span>
+              Image Prompts —{' '}
+              <span className="text-primary">
+                {promptResult.reduce((n, s) => n + s.items.length, 0)} prompts
+              </span>
             </h2>
-            <Button size="sm" onClick={handleDownloadImages} disabled={downloading}>
-              {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-              {downloading ? 'Đang tạo ZIP…' : `Tải xuống (${Object.keys(selected).length} ảnh)`}
-            </Button>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={handleCopyAll}>
+                <ClipboardCopy className="h-4 w-4" />Copy All
+              </Button>
+              <Button size="sm" onClick={handleDownloadTxt}>
+                <Download className="h-4 w-4" />Download TXT
+              </Button>
+            </div>
           </div>
 
-          {imageResult.map((section, sIdx) => (
+          {promptResult.map((section, sIdx) => (
             <Card key={sIdx}>
               <CardHeader className="p-4 pb-2">
                 <CardTitle className="text-sm font-semibold text-primary uppercase tracking-wide">
                   {section.title}
                 </CardTitle>
               </CardHeader>
-              <CardContent className="p-4 pt-0 space-y-4">
-                {section.items.map((item, iIdx) => {
-                  const key = `${sIdx}-${iIdx}`;
-                  return (
-                    <div key={iIdx} className="border-b border-border/40 pb-4 last:border-0 last:pb-0">
-                      <p className="text-sm text-foreground/80 mb-1 line-clamp-2">{item.sentence}</p>
-                      <p className="text-xs text-muted-foreground mb-2 font-mono">{item.keywords}</p>
-                      {(!item.images || item.images.length === 0) ? (
-                        <p className="text-xs text-muted-foreground italic">Không tìm thấy ảnh</p>
-                      ) : (
-                        <div className="flex gap-2 flex-wrap">
-                          {(item.images ?? []).map((img, imgIdx) => {
-                            const isSelected = selected[key]?.url === img.url;
-                            return (
-                              <button
-                                key={imgIdx}
-                                onClick={() => toggleSelectImage(key, img)}
-                                className={cn(
-                                  'relative rounded overflow-hidden border-2 transition-all',
-                                  isSelected
-                                    ? 'border-primary ring-2 ring-primary/50'
-                                    : 'border-border/40 hover:border-primary/50 opacity-70 hover:opacity-100',
-                                )}
-                              >
-                                <img
-                                  src={img.url}
-                                  alt={img.alt}
-                                  referrerPolicy="no-referrer"
-                                  className="w-40 h-28 object-cover"
-                                  onError={(e) => {
-                                    const t = e.currentTarget;
-                                    if (t.src !== img.thumbnail) t.src = img.thumbnail;
-                                  }}
-                                />
-                                {isSelected && (
-                                  <div className="absolute top-1 right-1 bg-primary rounded-full p-0.5">
-                                    <Check className="h-3 w-3 text-primary-foreground" />
-                                  </div>
-                                )}
-                                <p className="text-[10px] text-muted-foreground px-1 pb-0.5 truncate bg-background/80">
-                                  {img.source}
-                                </p>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
+              <CardContent className="p-4 pt-0 space-y-3">
+                {section.items.map((item, iIdx) => (
+                  <div key={iIdx} className="border-b border-border/40 pb-3 last:border-0 last:pb-0">
+                    <p className="text-xs text-muted-foreground mb-1 line-clamp-2 italic">
+                      {item.sentence}
+                    </p>
+                    <div className="flex items-start gap-2">
+                      <p className="text-sm text-foreground/90 flex-1 leading-relaxed font-mono bg-muted/30 rounded px-2 py-1.5">
+                        {item.prompt}
+                      </p>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 shrink-0 mt-0.5"
+                        onClick={() => {
+                          navigator.clipboard.writeText(item.prompt);
+                          toast({ title: 'Đã copy!' });
+                        }}
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
               </CardContent>
             </Card>
           ))}
 
-          <div className="flex justify-end pb-6">
-            <Button size="sm" onClick={handleDownloadImages} disabled={downloading}>
-              {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-              {downloading ? 'Đang tạo ZIP…' : `Tải xuống tất cả (${Object.keys(selected).length} ảnh)`}
+          <div className="flex justify-end gap-2 pb-6">
+            <Button size="sm" variant="outline" onClick={handleCopyAll}>
+              <ClipboardCopy className="h-4 w-4" />Copy All ({promptResult.reduce((n, s) => n + s.items.length, 0)})
+            </Button>
+            <Button size="sm" onClick={handleDownloadTxt}>
+              <Download className="h-4 w-4" />Download TXT
             </Button>
           </div>
         </div>

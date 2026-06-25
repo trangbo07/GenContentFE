@@ -116,7 +116,13 @@ export const refreshNews = () =>
 export const generateCustomScript = (payload: CustomGeneratePayload) =>
   api.post<Script>('/scripts/generate/custom', payload).then((r) => r.data);
 
-// Images
+// Prompt generation
+export interface PromptItem { sentence: string; prompt: string; }
+export interface SectionPrompts { title: string; items: PromptItem[]; }
+export const genPrompts = (id: string) =>
+  api.post<{ sections: SectionPrompts[] }>(`/scripts/${id}/gen-prompts`).then((r) => r.data);
+
+// Images (legacy)
 export interface ImageOption {
   url: string;
   thumbnail: string;
