@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { getScript, deleteScript, regenerateScript, updateScript, translateScript, findImages, downloadImagesZip, type Script, type SectionImages } from '@/lib/api';
+import { getScript, deleteScript, regenerateScript, updateScript, translateScript, findImages, downloadImagesZip, type Script, type SectionImages, type ImageOption } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -50,6 +50,8 @@ export function ScriptDetailPage() {
   const [imageResult, setImageResult] = useState<SectionImages[] | null>(null);
   const [findingImages, setFindingImages] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  // key = "sIdx-iIdx", value = selected ImageOption
+  const [selected, setSelected] = useState<Record<string, ImageOption>>({});
 
   // Edit mode state
   const [editMode, setEditMode] = useState(false);
@@ -153,27 +155,56 @@ export function ScriptDetailPage() {
     if (!script) return;
     setFindingImages(true);
     setImageResult(null);
+    setSelected({});
     try {
       const result = await findImages(script.id);
       setImageResult(result.sections);
-      toast({ title: `Tìm được ${result.total} ảnh` });
+      // auto-select first image of each sentence
+      const autoSelected: Record<string, ImageOption> = {};
+      result.sections.forEach((sec, sIdx) => {
+        sec.items.forEach((item, iIdx) => {
+          if (item.images[0]) autoSelected[`${sIdx}-${iIdx}`] = item.images[0];
+        });
+      });
+      setSelected(autoSelected);
+      const total = Object.keys(autoSelected).length;
+      toast({ title: `Tìm được ảnh cho ${total} câu` });
     } catch {
-      toast({ title: 'Không tìm được ảnh — kiểm tra PEXELS_API_KEY', variant: 'destructive' });
+      toast({ title: 'Không tìm được ảnh — kiểm tra SERPER_API_KEY trên Render', variant: 'destructive' });
     } finally {
       setFindingImages(false);
     }
   }
 
   async function handleDownloadImages() {
-    if (!imageResult || !script) return;
+    if (!script) return;
     setDownloading(true);
     try {
-      await downloadImagesZip(script.id, imageResult);
+      const toDownload = Object.entries(selected).map(([key, img]) => ({
+        url: img.url,
+        filename: `${key.replace('-', '_S')}.jpg`,
+      }));
+      if (toDownload.length === 0) {
+        toast({ title: 'Chưa chọn ảnh nào', variant: 'destructive' });
+        return;
+      }
+      await downloadImagesZip(script.id, toDownload);
     } catch {
       toast({ title: 'Download thất bại', variant: 'destructive' });
     } finally {
       setDownloading(false);
     }
+  }
+
+  function toggleSelectImage(key: string, img: ImageOption) {
+    setSelected((prev) => {
+      if (prev[key]?.url === img.url) {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      }
+      return { ...prev, [key]: img };
+    });
   }
 
   async function handleDelete() {
@@ -406,16 +437,12 @@ export function ScriptDetailPage() {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold">
-              Ảnh cho bản tin —{' '}
-              <span className="text-primary">
-                {imageResult.reduce((n, s) => n + s.items.filter((i) => i.imageUrl).length, 0)} ảnh
-              </span>
+              Kết quả tìm ảnh —{' '}
+              <span className="text-primary">{Object.keys(selected).length} ảnh đã chọn</span>
             </h2>
             <Button size="sm" onClick={handleDownloadImages} disabled={downloading}>
-              {downloading
-                ? <Loader2 className="h-4 w-4 animate-spin" />
-                : <Download className="h-4 w-4" />}
-              {downloading ? 'Đang tạo ZIP…' : 'Tải xuống tất cả (ZIP)'}
+              {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              {downloading ? 'Đang tạo ZIP…' : `Tải xuống (${Object.keys(selected).length} ảnh)`}
             </Button>
           </div>
 
@@ -426,38 +453,59 @@ export function ScriptDetailPage() {
                   {section.title}
                 </CardTitle>
               </CardHeader>
-              <CardContent className="p-4 pt-0 space-y-3">
-                {section.items.map((item, iIdx) => (
-                  <div key={iIdx} className="flex gap-3 items-start border-b border-border/40 pb-3 last:border-0 last:pb-0">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-foreground/80 leading-relaxed line-clamp-2">{item.sentence}</p>
-                      <p className="text-xs text-muted-foreground mt-1 font-mono">{item.keywords}</p>
+              <CardContent className="p-4 pt-0 space-y-4">
+                {section.items.map((item, iIdx) => {
+                  const key = `${sIdx}-${iIdx}`;
+                  return (
+                    <div key={iIdx} className="border-b border-border/40 pb-4 last:border-0 last:pb-0">
+                      <p className="text-sm text-foreground/80 mb-1 line-clamp-2">{item.sentence}</p>
+                      <p className="text-xs text-muted-foreground mb-2 font-mono">{item.keywords}</p>
+                      {item.images.length === 0 ? (
+                        <p className="text-xs text-muted-foreground italic">Không tìm thấy ảnh</p>
+                      ) : (
+                        <div className="flex gap-2 flex-wrap">
+                          {item.images.map((img, imgIdx) => {
+                            const isSelected = selected[key]?.url === img.url;
+                            return (
+                              <button
+                                key={imgIdx}
+                                onClick={() => toggleSelectImage(key, img)}
+                                className={cn(
+                                  'relative rounded overflow-hidden border-2 transition-all',
+                                  isSelected
+                                    ? 'border-primary ring-2 ring-primary/50'
+                                    : 'border-border/40 hover:border-primary/50 opacity-70 hover:opacity-100',
+                                )}
+                              >
+                                <img
+                                  src={img.thumbnail}
+                                  alt={img.alt}
+                                  className="w-40 h-28 object-cover"
+                                />
+                                {isSelected && (
+                                  <div className="absolute top-1 right-1 bg-primary rounded-full p-0.5">
+                                    <Check className="h-3 w-3 text-primary-foreground" />
+                                  </div>
+                                )}
+                                <p className="text-[10px] text-muted-foreground px-1 pb-0.5 truncate bg-background/80">
+                                  {img.source}
+                                </p>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                    {item.thumbnail ? (
-                      <div className="shrink-0">
-                        <img
-                          src={item.thumbnail}
-                          alt={item.imageAlt}
-                          className="w-36 h-24 object-cover rounded border border-border"
-                        />
-                      </div>
-                    ) : (
-                      <div className="w-36 h-24 shrink-0 rounded border border-border/30 bg-muted/30 flex items-center justify-center">
-                        <span className="text-xs text-muted-foreground">Không tìm thấy</span>
-                      </div>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </CardContent>
             </Card>
           ))}
 
-          <div className="flex justify-end">
+          <div className="flex justify-end pb-6">
             <Button size="sm" onClick={handleDownloadImages} disabled={downloading}>
-              {downloading
-                ? <Loader2 className="h-4 w-4 animate-spin" />
-                : <Download className="h-4 w-4" />}
-              {downloading ? 'Đang tạo ZIP…' : 'Tải xuống tất cả (ZIP)'}
+              {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              {downloading ? 'Đang tạo ZIP…' : `Tải xuống tất cả (${Object.keys(selected).length} ảnh)`}
             </Button>
           </div>
         </div>

@@ -117,12 +117,17 @@ export const generateCustomScript = (payload: CustomGeneratePayload) =>
   api.post<Script>('/scripts/generate/custom', payload).then((r) => r.data);
 
 // Images
+export interface ImageOption {
+  url: string;
+  thumbnail: string;
+  alt: string;
+  source: string;
+}
+
 export interface SentenceImage {
   sentence: string;
   keywords: string;
-  imageUrl: string | null;
-  thumbnail: string | null;
-  imageAlt: string;
+  images: ImageOption[];
 }
 
 export interface SectionImages {
@@ -132,14 +137,20 @@ export interface SectionImages {
 
 export interface ImageSearchResult {
   sections: SectionImages[];
-  total: number;
 }
 
 export const findImages = (id: string) =>
   api.post<ImageSearchResult>(`/scripts/${id}/find-images`).then((r) => r.data);
 
-export const downloadImagesZip = async (id: string, sections: SectionImages[]): Promise<void> => {
-  const res = await api.post(`/scripts/${id}/download-images`, { sections }, { responseType: 'blob' });
+export const downloadImagesZip = async (
+  id: string,
+  selected: { url: string; filename: string }[],
+): Promise<void> => {
+  const res = await api.post(
+    `/scripts/${id}/download-images`,
+    { selected },
+    { responseType: 'blob' },
+  );
   const url = URL.createObjectURL(res.data as Blob);
   const a = document.createElement('a');
   a.href = url;
