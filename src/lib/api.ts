@@ -121,9 +121,8 @@ export interface SentenceImage {
   sentence: string;
   keywords: string;
   imageUrl: string | null;
+  thumbnail: string | null;
   imageAlt: string;
-  photographer: string;
-  pexelsUrl: string;
 }
 
 export interface SectionImages {
