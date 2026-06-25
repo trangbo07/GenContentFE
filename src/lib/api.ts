@@ -138,3 +138,13 @@ export interface ImageSearchResult {
 
 export const findImages = (id: string) =>
   api.post<ImageSearchResult>(`/scripts/${id}/find-images`).then((r) => r.data);
+
+export const downloadImagesZip = async (id: string, sections: SectionImages[]): Promise<void> => {
+  const res = await api.post(`/scripts/${id}/download-images`, { sections }, { responseType: 'blob' });
+  const url = URL.createObjectURL(res.data as Blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `images_${id}.zip`;
+  a.click();
+  URL.revokeObjectURL(url);
+};

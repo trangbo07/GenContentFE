@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { getScript, deleteScript, regenerateScript, updateScript, translateScript, findImages, type Script, type SectionImages } from '@/lib/api';
+import { getScript, deleteScript, regenerateScript, updateScript, translateScript, findImages, downloadImagesZip, type Script, type SectionImages } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -165,40 +165,10 @@ export function ScriptDetailPage() {
   }
 
   async function handleDownloadImages() {
-    if (!imageResult) return;
+    if (!imageResult || !script) return;
     setDownloading(true);
     try {
-      const { default: JSZip } = await import('jszip');
-      const zip = new JSZip();
-
-      const tasks: { url: string; path: string }[] = [];
-      imageResult.forEach((section, sIdx) => {
-        const folderName = `S${sIdx + 1}_${section.title.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 30)}`;
-        section.items.forEach((item, iIdx) => {
-          if (item.imageUrl) {
-            tasks.push({ url: item.imageUrl, path: `${folderName}/${String(iIdx + 1).padStart(2, '0')}.jpg` });
-          }
-        });
-      });
-
-      // Download in batches of 5
-      for (let i = 0; i < tasks.length; i += 5) {
-        await Promise.all(
-          tasks.slice(i, i + 5).map(async ({ url, path }) => {
-            try {
-              const res = await fetch(url);
-              zip.file(path, await res.blob());
-            } catch { /* skip failed */ }
-          }),
-        );
-      }
-
-      const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = `${script!.title.slice(0, 40).replace(/[^a-zA-Z0-9]/g, '_')}_images.zip`;
-      a.click();
-      URL.revokeObjectURL(a.href);
+      await downloadImagesZip(script.id, imageResult);
     } catch {
       toast({ title: 'Download thất bại', variant: 'destructive' });
     } finally {
@@ -463,17 +433,14 @@ export function ScriptDetailPage() {
                       <p className="text-sm text-foreground/80 leading-relaxed line-clamp-2">{item.sentence}</p>
                       <p className="text-xs text-muted-foreground mt-1 font-mono">{item.keywords}</p>
                     </div>
-                    {item.imageUrl ? (
-                      <a href={item.pexelsUrl} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                    {item.thumbnail ? (
+                      <div className="shrink-0">
                         <img
-                          src={item.imageUrl}
+                          src={item.thumbnail}
                           alt={item.imageAlt}
-                          className="w-36 h-24 object-cover rounded border border-border hover:opacity-80 transition-opacity"
+                          className="w-36 h-24 object-cover rounded border border-border"
                         />
-                        <p className="text-[10px] text-muted-foreground mt-1 text-center truncate w-36">
-                          © {item.photographer}
-                        </p>
-                      </a>
+                      </div>
                     ) : (
                       <div className="w-36 h-24 shrink-0 rounded border border-border/30 bg-muted/30 flex items-center justify-center">
                         <span className="text-xs text-muted-foreground">Không tìm thấy</span>
