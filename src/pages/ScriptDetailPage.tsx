@@ -478,9 +478,14 @@ export function ScriptDetailPage() {
                                 )}
                               >
                                 <img
-                                  src={img.thumbnail}
+                                  src={img.url}
                                   alt={img.alt}
+                                  referrerPolicy="no-referrer"
                                   className="w-40 h-28 object-cover"
+                                  onError={(e) => {
+                                    const t = e.currentTarget;
+                                    if (t.src !== img.thumbnail) t.src = img.thumbnail;
+                                  }}
                                 />
                                 {isSelected && (
                                   <div className="absolute top-1 right-1 bg-primary rounded-full p-0.5">
