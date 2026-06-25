@@ -119,7 +119,8 @@ export function ScriptDetailPage() {
 
   function handleExport(format: 'docx' | 'pdf') {
     if (!script) return;
-    window.open(`/api/scripts/${script.id}/export?format=${format}`, '_blank');
+    const base = (import.meta.env.VITE_API_URL as string | undefined) ?? '/api';
+    window.open(`${base}/scripts/${script.id}/export?format=${format}`, '_blank');
   }
 
   async function handleRegenerate() {
@@ -158,12 +159,12 @@ export function ScriptDetailPage() {
     setSelected({});
     try {
       const result = await findImages(script.id);
-      setImageResult(result.sections);
-      // auto-select first image of each sentence
+      const sections = result?.sections ?? [];
+      setImageResult(sections);
       const autoSelected: Record<string, ImageOption> = {};
-      result.sections.forEach((sec, sIdx) => {
-        sec.items.forEach((item, iIdx) => {
-          if (item.images[0]) autoSelected[`${sIdx}-${iIdx}`] = item.images[0];
+      sections.forEach((sec, sIdx) => {
+        (sec.items ?? []).forEach((item, iIdx) => {
+          if (item.images?.[0]) autoSelected[`${sIdx}-${iIdx}`] = item.images[0];
         });
       });
       setSelected(autoSelected);
@@ -461,11 +462,11 @@ export function ScriptDetailPage() {
                     <div key={iIdx} className="border-b border-border/40 pb-4 last:border-0 last:pb-0">
                       <p className="text-sm text-foreground/80 mb-1 line-clamp-2">{item.sentence}</p>
                       <p className="text-xs text-muted-foreground mb-2 font-mono">{item.keywords}</p>
-                      {item.images.length === 0 ? (
+                      {(!item.images || item.images.length === 0) ? (
                         <p className="text-xs text-muted-foreground italic">Không tìm thấy ảnh</p>
                       ) : (
                         <div className="flex gap-2 flex-wrap">
-                          {item.images.map((img, imgIdx) => {
+                          {(item.images ?? []).map((img, imgIdx) => {
                             const isSelected = selected[key]?.url === img.url;
                             return (
                               <button
